@@ -9,7 +9,7 @@ import { findProgramAddressSync } from '@project-serum/anchor/dist/cjs/utils/pub
 import { useAnchorWallet, useConnection, useWallet } from '@solana/wallet-adapter-react'
 import { authorFilter } from '../utils'
 
-// Static data that reflects the todo struct of the solana program
+
 let dummyTodos = [
     {
         account: {
@@ -79,20 +79,73 @@ export function useTodo() {
     }, [connection, anchorWallet])
 
     useEffect(() => {
+        // Fetch user profile, if there is a profile get todo accounts
+        const findProfileAccounts = async () => {
+            if (program && publicKey && !transactionPending) {
+                try {
+                    setLoading(true)
+                    const [profilePda, profileBump] = findProgramAddressSync([utf8.encode('USER_STATE'), publicKey.toBuffer()], program.programId)
+                    const profileAccount = await program.account.userProfile.fetch(profilePda)
 
-        if (initialized) {
-            setTodos(dummyTodos)
+                    if (profileAccount) {
+                        setLastTodo(profileAccount.lastTodo)
+                        setInitialized(true)
+
+                        const todoAccounts = await program.account.todoAccount.all([authorFilter(publicKey.toString())])
+                        console.log(todoAccounts);
+                        setTodos(todoAccounts)
+                    }
+                    else {
+                        console.log('NOT YET INITIALIZED');
+                        setInitialized(false)
+                    }
+                }
+                catch (err) {
+                    console.log(err)
+                    setInitialized(false)
+                    setTodos([])
+                }
+                finally {
+                    setLoading(false)
+                }
+            }
         }
+        findProfileAccounts()
 
-
-    }, [initialized])
+    }, [publicKey, program, transactionPending])
 
     const handleChange = (e) => {
         setInput(e.target.value)
     }
 
-    const initializeStaticUser = () => {
-        setInitialized(true)
+
+    const initializeUser = async () => {
+        // Check if program exits and wallet is connected
+        if (program && publicKey) {
+            try {
+                setTransactionPending(true)
+                const [profilePda, profileBump] = findProgramAddressSync([utf8.encode('USER_STATE'), publicKey.toBuffer()], program.programId)
+
+                const tx = await program.methods
+                    .initializeUser()
+                    .accounts({
+                        userProfile: profilePda,
+                        authority: publicKey,
+                        systemProgram: SystemProgram.programId
+                    })
+                    .rpc()
+
+                setInitialized(true)
+                toast.success('Successfully Initialized.')
+            }
+            catch (err) {
+                console.log(err)
+                toast.error(err.toString())
+            }
+            finally {
+                setTransactionPending(false)
+            }
+        }
     }
 
     const addStaticTodo = (e) => {
@@ -146,5 +199,5 @@ export function useTodo() {
     const incompleteTodos = useMemo(() => todos.filter((todo) => !todo.account.marked), [todos])
     const completedTodos = useMemo(() => todos.filter((todo) => todo.account.marked), [todos])
 
-    return { initialized, initializeStaticUser, loading, transactionPending, completedTodos, incompleteTodos, markStaticTodo, removeStaticTodo, addStaticTodo, input, setInput, handleChange }
+    return { initialized, loading, transactionPending, completedTodos, incompleteTodos, markStaticTodo, removeStaticTodo, addStaticTodo, input, setInput, handleChange, initializeUser }
 }
